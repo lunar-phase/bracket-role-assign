@@ -1,0 +1,18 @@
+{
+  "name": "bracket-role-assign",
+  "version": "0.0.1",
+  "description": "Assigns roles to Discord server members based on tournament registration",
+  "bin": "./index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "dependencies": {
+    "discord.js": "^12.1.1",
+    "graphql-request": "^1.8.2",
+    "node-fetch": "^2.6.0",
+    "string-similarity": "^4.0.1"
+  }
+}
