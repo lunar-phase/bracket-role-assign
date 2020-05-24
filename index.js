@@ -211,17 +211,18 @@ function getMemberForParticipant(members, participant) {
   } else {
     // TODO(Adrian): Consider using a string similarity algorithm
     const handle = participant.gamerTag;
-    const fullHandle = participant.prefix && `${participant.prefix} | ${participant.gamerTag}`;
+    const fullHandle = participant.prefix ? `${participant.prefix} | ${handle}` : handle;
     console.log(`Looking for ${fullHandle}`);
-    member = members.find(m => m.user.username === handle ||
-      m.user.username === fullHandle ||
-      m.displayName === handle ||
-      m.displayName === fullHandle);
+    member = members.find( m =>
+      caseInsensitiveEquality(m.user.username, handle) ||
+      caseInsensitiveEquality(m.user.username, fullHandle) ||
+      caseInsensitiveEquality(m.displayName, handle) ||
+      caseInsensitiveEquality(m.displayName, fullHandle));
   }
   if (member) {
-    console.log(`Found: ${member.user.tag}`);
+    console.log(`Found: ${member.user.tag}\n`);
   } else {
-    console.log('Not member found');
+    console.log('Member not found\n');
   }
   return member;
 }
@@ -267,19 +268,33 @@ async function setRoles(managedRoles, player) {
   }
 }
 
+/**
+ * @param {Player} player
+ */
 async function setNickname(player) {
   const handle = player.handle;
   const fullHandle = player.prefix ? `${player.prefix} | ${handle}` : handle;
   const displayNameLower = player.member.displayName.toLowerCase();
+  /** @type {number[]} */
   const similarities = [
     similarity(handle.toLowerCase(), displayNameLower),
     similarity(fullHandle.toLowerCase(), displayNameLower),
+    displayNameLower.includes(handle.toLowerCase()) ? 1 : 0,
   ];
   if (similarities.some(s => s > 0.8)) {
     return;
   }
   console.log(`Renaming ${player.member.displayName} to ${fullHandle}`);
   await player.member.setNickname(fullHandle, 'Matching bracket name');
+}
+
+/**
+ * @param {string} str1
+ * @param {string} str2
+ * @returns {boolean}
+ */
+function caseInsensitiveEquality(str1, str2) {
+  return str1.toLowerCase() === str2.toLowerCase();
 }
 
 main().catch(console.error);
