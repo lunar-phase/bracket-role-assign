@@ -1,7 +1,10 @@
 {
   "server": "[server id]",
-  "roles": {
+  "temporaryRoles": {
     "[role 1 id]": 22407,
     "[role 2 id]": "Under Night In-Birth Exe:Late[cl-r]"
+  },
+  "permanentRoles": {
+    "[role 3 id]": "Under Night In-Birth Exe:Late[cl-r]"
   }
 }

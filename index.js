@@ -11,6 +11,30 @@ const similarity = require('string-similarity').compareTwoStrings;
 /** @typedef {import('discord.js').Role} Role */
 /** @typedef {import('discord.js').Snowflake} Snowflake */
 
+/** @typedef {number} SmashggId */
+
+/**
+ * @typedef {Object} Videogame
+ * @property {number} id
+ * @property {string} name
+ */
+
+/** @typedef {Record<string, string | SmashggId>} RolesConfig */
+
+/**
+ * @typedef {Object} Config
+ * @property {Snowflake} server
+ * @property {RolesConfig} [roles] - deprecated
+ * @property {RolesConfig} [temporaryRoles]
+ * @property {RolesConfig} [permanentRoles]
+ */
+
+/**
+ * @typedef {Object} Credentials
+ * @property {string} discord
+ * @property {string} smashgg
+ */
+
 /**
  * @typedef {Object} Player
  * @property {GuildMember} member
@@ -22,6 +46,7 @@ const similarity = require('string-similarity').compareTwoStrings;
 const EVENTS_QUERY = `
 query EventsQuery($slug: String) {
   tournament(slug: $slug) {
+    name
     events {
       id
       videogame {
@@ -59,8 +84,10 @@ query EntrantsQuery($eventId: ID, $page: Int) {
 const SMASHGG_ENDPOINT = 'https://api.smash.gg/gql/alpha';
 
 async function main() {
+  /** @type {Credentials} */
   const credentials = await fs.readFile('credentials.json', { encoding: 'utf8' })
     .then(JSON.parse);
+  /** @type {Config} */
   const config = await fs.readFile('config.json', { encoding: 'utf8' })
     .then(JSON.parse);
   const tournamentSlug = process.argv[2];
@@ -71,14 +98,29 @@ async function main() {
   const discordClient = await getDiscordClient(credentials);
 
   const guild = await getGuild(discordClient, config.server);
-  const roles = await getRoles(guild,  Object.keys(config.roles));
-  const members = await getMembers(guild);
+  const guildRoles = await getGuildRoles(guild);
+  const guildMembers = await getMembers(guild);
 
-  const players = await getPlayersAndRoles(graphqlClient, tournamentSlug, members, config.roles);
+  const temporaryRolesConfig = config.temporaryRoles || config.roles || {};
+  const permanentRolesConfig = config.permanentRoles || {};
+  const combinedRolesConfig = Object.assign({}, temporaryRolesConfig, permanentRolesConfig);
+  const temporaryRoles = filterRoles(guildRoles, temporaryRolesConfig)
+  const combinedRoles = filterRoles(guildRoles, combinedRolesConfig);
+  if (!combinedRoles.length) {
+    console.error(`None of the given roles found on server: ${Object.keys(combinedRolesConfig)}`);
+    process.exit();
+  }
 
-  await removeRolesForNonPlayers(roles, members, players);
+  const players = await getPlayersAndRoles(
+    graphqlClient,
+    tournamentSlug,
+    guildMembers,
+    combinedRolesConfig,
+  );
 
-  await Promise.all(players.map(p => setRoles(roles, p)));
+  await removeRolesForNonPlayers(temporaryRoles, guildMembers, players);
+
+  await Promise.all(players.map(p => setRoles(combinedRoles, p)));
 
   await Promise.all(players.map(setNickname));
 
@@ -109,17 +151,20 @@ function getGuild(discordClient, serverId) {
 
 /**
  * @param {Guild} guild
- * @param {Snowflake[]} roleIds
  * @returns {Promise<Role[]>}
  */
-async function getRoles(guild, roleIds) {
-  const roles = Array.from((await guild.roles.fetch()).cache.values())
-    .filter(role => roleIds.includes(role.id));
-  if (!roles.length) {
-    console.error(`None of the given roles found on server: ${roleIds}`);
-    process.exit();
-  }
-  return roles;
+async function getGuildRoles(guild) {
+  return Array.from((await guild.roles.fetch()).cache.values());
+}
+
+/**
+ * @param {Role[]} roles
+ * @param {RolesConfig} rolesConfig
+ * @returns {Role[]}
+ */
+function filterRoles(roles, rolesConfig) {
+  const roleIds = Object.keys(rolesConfig);
+  return roles.filter(role => roleIds.includes(role.id));
 }
 
 /**
@@ -130,6 +175,11 @@ async function getMembers(guild) {
   return Array.from((await guild.members.fetch()).values());
 }
 
+/**
+ * @param {GuildMember[]} members
+ * @param {Role[]} roles
+ * @returns {Promise<void>}
+ */
 async function removeRolesFromMembers(members, roles) {
   const roleIds = roles.map(r => r.id);
   const membersWithRoles = members.filter(m => roleIds.some(id => m.roles.cache.has(id)));
@@ -138,6 +188,10 @@ async function removeRolesFromMembers(members, roles) {
 }
 
 /**
+ * @param {GraphQLClient} graphqlClient
+ * @param {string} tournamentSlug
+ * @param {GuildMember[]} members
+ * @param {RolesConfig} rolesConfig
  * @returns {Promise<Player[]>}
  */
 async function getPlayersAndRoles(graphqlClient, tournamentSlug, members, rolesConfig) {
@@ -176,10 +230,13 @@ async function getEvents(graphqlClient, tournamentSlug) {
     console.error(`Unable to find tournament: ${tournamentSlug}`);
     process.exit();
   }
+  console.log(`Tournament: ${data.tournament.name}`);
   return data.tournament.events;
 }
 
 /**
+ * @param {Videogame} videogame
+ * @param {RolesConfig} rolesConfig
  * @returns {Snowflake[]}
  */
 function getRolesIdsForVideogame(videogame, rolesConfig) {
@@ -202,6 +259,11 @@ async function getEventParticipants(graphqlClient, eventId) {
   return participants;
 }
 
+/**
+ * @param {GuildMember[]} members
+ * @param {*} participant
+ * @returns {GuildMember | undefined}
+ */
 function getMemberForParticipant(members, participant) {
   let member;
   if (participant.user && participant.user.authorizations) {
@@ -241,7 +303,7 @@ async function removeRolesForNonPlayers(managedRoles, members, players) {
       .map(m => {
         if (Array.from(m.roles.cache.keys()).some(id => roleIds.has(id))) {
           console.log(`Removing role(s) ${managedRoles.map(r => r.name)} from ${m.displayName}`)
-          return m.roles.remove(Array.from(roleIds));
+          return m.roles.remove(Array.from(roleIds));;
         }
       })
   );
